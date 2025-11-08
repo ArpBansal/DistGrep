@@ -74,11 +74,11 @@ func (fr *FailingReducer) GetFailureStats() (int32, map[string]bool) {
 }
 
 // shouldFail randomly determines if an operation should fail based on failure rate.
+// Use a simple pseudo-random approach
 func shouldFail(failureRate float64) bool {
 	if failureRate <= 0 {
 		return false
 	}
-	// Use a simple pseudo-random approach
 	return (atomic.AddInt32(&randomSeed, 1) % 100) < int32(failureRate*100)
 }
 
@@ -138,11 +138,10 @@ func (fm *FailingMapper) GetFailedFiles() map[string]bool {
 
 // TestReducerFailureRecovery tests if the system recovers from reducer failures.
 func TestReducerFailureRecovery(t *testing.T) {
-	// Create temporary test files
+
 	tmpDir := t.TempDir()
 	testFiles := createTestFiles(t, tmpDir, 3)
 
-	// Create distributed grep instance
 	dg, err := grep.NewDistributedGrep("test")
 	if err != nil {
 		t.Fatalf("Failed to create grep: %v", err)
@@ -158,7 +157,6 @@ func TestReducerFailureRecovery(t *testing.T) {
 		t.Fatalf("Search failed: %v", err)
 	}
 
-	// Verify that we got some results despite failures
 	failureCount, failedKeys := failingReducer.GetFailureStats()
 
 	t.Logf("Test completed with %d reducer failures", failureCount)
@@ -168,7 +166,6 @@ func TestReducerFailureRecovery(t *testing.T) {
 		t.Fatalf("Expected some results or failures, but got none")
 	}
 
-	// Verify that at least some keys were processed successfully
 	successCount := len(results) - len(failedKeys)
 	if successCount < 0 {
 		successCount = 0
@@ -179,20 +176,18 @@ func TestReducerFailureRecovery(t *testing.T) {
 
 // TestMapperFailureRecovery tests if the system recovers from mapper failures.
 func TestMapperFailureRecovery(t *testing.T) {
-	// Create temporary test files
+
 	tmpDir := t.TempDir()
 	testFiles := createTestFiles(t, tmpDir, 5)
 
-	// Create distributed grep instance
+
 	dg, err := grep.NewDistributedGrep("test")
 	if err != nil {
 		t.Fatalf("Failed to create grep: %v", err)
 	}
 
-	// Create a failing mapper wrapper with 20% failure rate
 	failingMapper := NewFailingMapper(dg, 0.2)
 
-	// Execute search with failure injection
 	engine := mapreduce.NewEngine(2)
 	_, err = engine.Execute(testFiles, failingMapper, dg)
 	if err != nil {
@@ -204,7 +199,6 @@ func TestMapperFailureRecovery(t *testing.T) {
 	t.Logf("Test completed with %d files that could not be processed", len(failedFiles))
 	t.Logf("Failed files: %v", failedFiles)
 
-	// Verify that we processed at least some files
 	filesProcessed := len(testFiles) - len(failedFiles)
 	t.Logf("Successfully processed %d/%d files", filesProcessed, len(testFiles))
 
@@ -215,21 +209,19 @@ func TestMapperFailureRecovery(t *testing.T) {
 
 // TestCombinedChaos tests both mapper and reducer failures simultaneously.
 func TestCombinedChaos(t *testing.T) {
-	// Create temporary test files
+
 	tmpDir := t.TempDir()
 	testFiles := createTestFiles(t, tmpDir, 4)
 
-	// Create distributed grep instance
+
 	dg, err := grep.NewDistributedGrep("test|error|chaos")
 	if err != nil {
 		t.Fatalf("Failed to create grep: %v", err)
 	}
 
-	// Create failing components
 	failingMapper := NewFailingMapper(dg, 0.25)
 	failingReducer := NewFailingReducer(dg, 0.25)
 
-	// Execute search with dual failure injection
 	engine := mapreduce.NewEngine(3)
 	results, err := engine.Execute(testFiles, failingMapper, failingReducer)
 	if err != nil {
