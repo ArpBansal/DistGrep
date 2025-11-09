@@ -72,9 +72,44 @@ func (dg *DistributedGrep) Reduce(key string, values []string) string {
 		return ""
 	}
 
+	coloredLine := dg.colorizeMatches(key)
+
 	// Format: matched_line -> [file1, file2, ...]
 	filesStr := strings.Join(values, ", ")
-	return fmt.Sprintf("%s -> [%s]", key, filesStr)
+	return fmt.Sprintf("%s -> [%s]", coloredLine, filesStr)
+}
+
+// colorizeMatches highlights the regex pattern matches in the line using ANSI color codes.
+func (dg *DistributedGrep) colorizeMatches(line string) string {
+	const (
+		colorReset = "\033[0m"
+		colorRed   = "\033[31m"
+		colorBold  = "\033[1m"
+	)
+
+	matches := dg.regex.FindAllStringIndex(line, -1)
+	if len(matches) == 0 {
+		return line
+	}
+
+	var result strings.Builder
+	lastEnd := 0
+
+	for _, match := range matches {
+		start, end := match[0], match[1]
+
+		result.WriteString(line[lastEnd:start])
+
+		result.WriteString(colorBold + colorRed)
+		result.WriteString(line[start:end])
+		result.WriteString(colorReset)
+
+		lastEnd = end
+	}
+
+	result.WriteString(line[lastEnd:])
+
+	return result.String()
 }
 
 // collectFiles recursively collects all files from paths (files and directories).

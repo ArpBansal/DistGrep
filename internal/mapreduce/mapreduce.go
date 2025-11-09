@@ -38,13 +38,10 @@ func (e *Engine) Execute(
 	mapper Mapper,
 	reducer Reducer,
 ) (map[string]string, error) {
-	// Phase 1: Map
 	intermediates := e.mapPhase(files, mapper)
 
-	// Phase 2: Shuffle & Sort
 	shuffled := e.shuffle(intermediates)
 
-	// Phase 3: Reduce
 	result := e.reducePhase(shuffled, reducer)
 
 	return result, nil
@@ -79,7 +76,6 @@ func (e *Engine) shuffle(kvs []types.KeyValue) map[string][]string {
 		grouped[kv.Key] = append(grouped[kv.Key], kv.Value)
 	}
 
-	// Sort values for each key for deterministic output
 	for key := range grouped {
 		sort.Strings(grouped[key])
 	}
@@ -96,14 +92,12 @@ func (e *Engine) reducePhase(
 	var mu sync.Mutex
 	result := make(map[string]string)
 
-	// Create a channel for keys to distribute work
 	keys := make([]string, 0, len(shuffled))
 	for k := range shuffled {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	// Limit concurrency to numReducers
 	sem := make(chan struct{}, e.numReducers)
 
 	for _, key := range keys {
