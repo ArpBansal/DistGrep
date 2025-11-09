@@ -21,15 +21,22 @@ type Reducer interface {
 
 // Engine is the MapReduce execution engine.
 type Engine struct {
-	numReducers int
-	mu          sync.Mutex
+	numReducers  int
+	maxRetries   int
+	mu           sync.Mutex
 }
 
 // NewEngine creates a new MapReduce engine.
 func NewEngine(numReducers int) *Engine {
 	return &Engine{
 		numReducers: numReducers,
+		maxRetries:  3, // Default retry count
 	}
+}
+
+// SetMaxRetries configures the maximum number of retries for failed operations.
+func (e *Engine) SetMaxRetries(retries int) {
+	e.maxRetries = retries
 }
 
 // Execute runs the MapReduce job on the given input files.
@@ -47,7 +54,7 @@ func (e *Engine) Execute(
 	return result, nil
 }
 
-// mapPhase executes the map phase in parallel.
+// mapPhase executes the map phase in parallel with retry logic.
 func (e *Engine) mapPhase(files []string, mapper Mapper) []types.KeyValue {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -57,7 +64,23 @@ func (e *Engine) mapPhase(files []string, mapper Mapper) []types.KeyValue {
 		wg.Add(1)
 		go func(f string) {
 			defer wg.Done()
-			kvs := mapper.Map(f)
+			
+			// Retry logic for mapper
+			var kvs []types.KeyValue
+			for attempt := 0; attempt < e.maxRetries; attempt++ {
+				kvs = mapper.Map(f)
+				
+				// Consider non-empty result as success
+				if len(kvs) > 0 {
+					break
+				}
+				
+				// If this is the last attempt and still empty, log warning
+				if attempt == e.maxRetries-1 {
+					fmt.Fprintf(os.Stderr, "[MapReduce] Warning: Mapper failed for file '%s' after %d attempts\n", f, e.maxRetries)
+				}
+			}
+			
 			mu.Lock()
 			intermediates = append(intermediates, kvs...)
 			mu.Unlock()
@@ -83,7 +106,7 @@ func (e *Engine) shuffle(kvs []types.KeyValue) map[string][]string {
 	return grouped
 }
 
-// reducePhase executes the reduce phase in parallel.
+// reducePhase executes the reduce phase in parallel with retry logic.
 func (e *Engine) reducePhase(
 	shuffled map[string][]string,
 	reducer Reducer,
@@ -107,10 +130,34 @@ func (e *Engine) reducePhase(
 			sem <- struct{}{}        // Acquire semaphore
 			defer func() { <-sem }() // Release semaphore
 
-			output := reducer.Reduce(k, shuffled[k])
-			mu.Lock()
-			result[k] = output
-			mu.Unlock()
+			// Retry logic for reducer
+			var output string
+			for attempt := 0; attempt < e.maxRetries; attempt++ {
+				output = reducer.Reduce(k, shuffled[k])
+				
+				// Consider non-empty, non-error result as success
+				if output != "" && len(output) > 0 {
+					// Check if output indicates an error
+					if len(output) >= 6 && output[:6] == "ERROR:" {
+						if attempt == e.maxRetries-1 {
+							fmt.Fprintf(os.Stderr, "[MapReduce] Warning: Reducer failed for key '%s' after %d attempts\n", k, e.maxRetries)
+						}
+						continue
+					}
+					break
+				}
+				
+				if attempt == e.maxRetries-1 {
+					fmt.Fprintf(os.Stderr, "[MapReduce] Warning: Reducer returned empty for key '%s' after %d attempts\n", k, e.maxRetries)
+				}
+			}
+			
+			// Only store non-error results
+			if output != "" && !(len(output) >= 6 && output[:6] == "ERROR:") {
+				mu.Lock()
+				result[k] = output
+				mu.Unlock()
+			}
 		}(key)
 	}
 
