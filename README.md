@@ -17,3 +17,15 @@ make build
 ```sh
 make run
 ```
+
+## Test
+
+```sh
+make test
+```
+
+## Lint
+
+```sh
+make lint
+```

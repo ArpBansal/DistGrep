@@ -180,7 +180,6 @@ func TestMapperFailureRecovery(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFiles := createTestFiles(t, tmpDir, 5)
 
-
 	dg, err := grep.NewDistributedGrep("test")
 	if err != nil {
 		t.Fatalf("Failed to create grep: %v", err)
@@ -212,7 +211,6 @@ func TestCombinedChaos(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	testFiles := createTestFiles(t, tmpDir, 4)
-
 
 	dg, err := grep.NewDistributedGrep("test|error|chaos")
 	if err != nil {

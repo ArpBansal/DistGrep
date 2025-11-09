@@ -23,7 +23,7 @@ type FSM struct {
 func NewFSM() *FSM {
 	lg := logger.New("INFO")
 	return &FSM{
-		state:  &types.ClusterState{
+		state: &types.ClusterState{
 			Tasks:   make(map[string]*types.GrepTask),
 			Workers: make(map[string]*types.Worker),
 			Version: 0,
@@ -158,7 +158,7 @@ func (f *FSM) applyWorkerOperation(entry *types.LogEntry) interface{} {
 			worker.TasksCompleted = int64(hb["tasks_completed"].(float64))
 			worker.TasksRunning = int64(hb["tasks_running"].(float64))
 			f.state.Version++
-			f.logger.Debug("Worker heartbeat: worker_id=%s status=%s completed=%d running=%d", 
+			f.logger.Debug("Worker heartbeat: worker_id=%s status=%s completed=%d running=%d",
 				workerID, status, worker.TasksCompleted, worker.TasksRunning)
 			return "worker_updated"
 		}

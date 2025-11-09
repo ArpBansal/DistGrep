@@ -45,10 +45,10 @@ type Worker struct {
 
 // ClusterState represents the shared state across all Raft nodes
 type ClusterState struct {
-	Tasks map[string]*GrepTask `json:"tasks"`
-	Workers map[string]*Worker `json:"workers"`
-	Leader string `json:"leader"`
-	Version int64 `json:"version"`
+	Tasks   map[string]*GrepTask `json:"tasks"`
+	Workers map[string]*Worker   `json:"workers"`
+	Leader  string               `json:"leader"`
+	Version int64                `json:"version"`
 }
 
 // LogEntry represents an entry in the Raft log

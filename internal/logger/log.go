@@ -17,12 +17,12 @@ const (
 )
 
 type Logger struct {
-	level     Level
-	mu        sync.Mutex
-	debugLog  *log.Logger
-	infoLog   *log.Logger
-	warnLog   *log.Logger
-	errorLog  *log.Logger
+	level    Level
+	mu       sync.Mutex
+	debugLog *log.Logger
+	infoLog  *log.Logger
+	warnLog  *log.Logger
+	errorLog *log.Logger
 }
 
 func New(level string) *Logger {
@@ -110,4 +110,3 @@ func (l *Logger) WithContext(ctx map[string]interface{}) string {
 	}
 	return result
 }
-

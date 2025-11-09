@@ -8,3 +8,10 @@ run: build
 
 clean:
 	rm -rf ./bin/$(BINARY_NAME)
+
+test:
+	go test ./... -v
+
+lint: test
+	go vet ./...
+	go fmt ./...
