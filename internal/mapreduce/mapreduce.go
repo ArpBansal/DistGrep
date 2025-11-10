@@ -65,17 +65,14 @@ func (e *Engine) mapPhase(files []string, mapper Mapper) []types.KeyValue {
 		go func(f string) {
 			defer wg.Done()
 			
-			// Retry logic for mapper
 			var kvs []types.KeyValue
 			for attempt := 0; attempt < e.maxRetries; attempt++ {
 				kvs = mapper.Map(f)
 				
-				// Consider non-empty result as success
 				if len(kvs) > 0 {
 					break
 				}
 				
-				// If this is the last attempt and still empty, log warning
 				if attempt == e.maxRetries-1 {
 					fmt.Fprintf(os.Stderr, "[MapReduce] Warning: Mapper failed for file '%s' after %d attempts\n", f, e.maxRetries)
 				}
@@ -130,14 +127,11 @@ func (e *Engine) reducePhase(
 			sem <- struct{}{}        // Acquire semaphore
 			defer func() { <-sem }() // Release semaphore
 
-			// Retry logic for reducer
 			var output string
 			for attempt := 0; attempt < e.maxRetries; attempt++ {
 				output = reducer.Reduce(k, shuffled[k])
 				
-				// Consider non-empty, non-error result as success
 				if output != "" && len(output) > 0 {
-					// Check if output indicates an error
 					if len(output) >= 6 && output[:6] == "ERROR:" {
 						if attempt == e.maxRetries-1 {
 							fmt.Fprintf(os.Stderr, "[MapReduce] Warning: Reducer failed for key '%s' after %d attempts\n", k, e.maxRetries)
@@ -152,7 +146,6 @@ func (e *Engine) reducePhase(
 				}
 			}
 			
-			// Only store non-error results
 			if output != "" && !(len(output) >= 6 && output[:6] == "ERROR:") {
 				mu.Lock()
 				result[k] = output

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"DistGrep/internal/discovery"
 	"DistGrep/internal/logger"
 	"DistGrep/internal/types"
 
@@ -25,15 +26,19 @@ type Cluster struct {
 	snapshotStore raft.SnapshotStore
 	transport     *raft.NetworkTransport
 	logger        *logger.Logger
+	discovery     *discovery.NodeDiscovery // Optional: for auto-discovery
 }
 
 // Config for creating a new cluster
 type Config struct {
-	NodeID   string   // Unique node identifier
-	BindAddr string   // Address to bind Raft transport
-	BindPort int      // Port for Raft transport
-	DataDir  string   // Directory for log store and snapshots
-	Peers    []string // List of peer addresses (nodeID@address:port)
+	NodeID           string   // Unique node identifier
+	BindAddr         string   // Address to bind Raft transport
+	BindPort         int      // Port for Raft transport
+	DataDir          string   // Directory for log store and snapshots
+	Peers            []string // List of peer addresses (nodeID@address:port)
+	UseDiscovery     bool     // Enable memberlist-based auto-discovery
+	DiscoveryPort    int      // Port for discovery gossip (if UseDiscovery is true)
+	DiscoveryJoinArr []string // Addresses to join discovery cluster
 }
 
 // NewCluster creates a new Raft cluster node
@@ -58,6 +63,38 @@ func NewCluster(cfg Config) (*Cluster, error) {
 		nodeID: cfg.NodeID,
 		fsm:    NewFSM(),
 		logger: lg,
+	}
+
+	if cfg.UseDiscovery {
+		discCfg := discovery.Config{
+			NodeID:       cfg.NodeID,
+			LocalAddress: cfg.BindAddr,
+			LocalPort:    cfg.DiscoveryPort,
+			JoinAddrs:    cfg.DiscoveryJoinArr,
+		}
+		nd, err := discovery.NewNodeDiscovery(discCfg)
+		if err != nil {
+			lg.Error("Failed to initialize discovery: %v", err)
+			return nil, fmt.Errorf("failed to initialize discovery: %w", err)
+		}
+		c.discovery = nd
+
+		nd.RegisterJoinCallback(func(nodeID, address string, port int) {
+			raftAddr := fmt.Sprintf("%s:%d", address, cfg.BindPort)
+			lg.Info("Discovery callback: adding peer node_id=%s addr=%s", nodeID, raftAddr)
+			if err := c.AddPeer(nodeID, raftAddr); err != nil {
+				lg.Warn("Failed to add discovered peer: %v", err)
+			}
+		})
+
+		nd.RegisterLeaveCallback(func(nodeID string) {
+			lg.Info("Discovery callback: removing peer node_id=%s", nodeID)
+			if err := c.RemovePeer(nodeID); err != nil {
+				lg.Warn("Failed to remove departed peer: %v", err)
+			}
+		})
+
+		lg.Info("Node discovery enabled with gossip on port %d", cfg.DiscoveryPort)
 	}
 
 	logStore, err := raftboltdb.NewBoltStore(filepath.Join(cfg.DataDir, "raft-logs.db"))
@@ -262,6 +299,13 @@ func (c *Cluster) GetFSM() *FSM {
 
 // Close closes the Raft node
 func (c *Cluster) Close() error {
+	// Shutdown discovery first if enabled
+	if c.discovery != nil {
+		if err := c.discovery.Shutdown(); err != nil {
+			c.logger.Warn("Error shutting down discovery: %v", err)
+		}
+	}
+
 	f := c.raft.Shutdown()
 	if err := f.Error(); err != nil {
 		return err
