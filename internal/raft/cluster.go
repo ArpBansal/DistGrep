@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"DistGrep/internal/discovery"
@@ -147,22 +148,52 @@ func NewCluster(cfg Config) (*Cluster, error) {
 	c.raft = r
 	lg.Info("Raft node initialized: node_id=%s", cfg.NodeID)
 
-	if len(cfg.Peers) == 0 {
-		configuration := raft.Configuration{
-			Servers: []raft.Server{
-				{
-					Suffrage: raft.Voter,
-					ID:       raft.ServerID(cfg.NodeID),
-					Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.BindPort)),
-				},
-			},
+	// Bootstrap cluster with all peers if provided
+	// Parse peer list and build server configuration
+	servers := []raft.Server{
+		{
+			Suffrage: raft.Voter,
+			ID:       raft.ServerID(cfg.NodeID),
+			Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.BindPort)),
+		},
+	}
+
+	// If peers provided, add them to the initial configuration
+	if len(cfg.Peers) > 0 {
+		for _, peer := range cfg.Peers {
+			// Parse peer format: "nodeID@address:port"
+			parts := strings.Split(peer, "@")
+			if len(parts) != 2 {
+				lg.Warn("Invalid peer format: %s (expected nodeID@address:port)", peer)
+				continue
+			}
+
+			peerNodeID := parts[0]
+			peerAddr := parts[1]
+
+			if peerNodeID == cfg.NodeID {
+				continue
+			}
+
+			servers = append(servers, raft.Server{
+				Suffrage: raft.Voter,
+				ID:       raft.ServerID(peerNodeID),
+				Address:  raft.ServerAddress(peerAddr),
+			})
 		}
-		f := c.raft.BootstrapCluster(configuration)
-		if err := f.Error(); err != nil {
-			lg.Error("Failed to bootstrap cluster: %v", err)
-			return nil, fmt.Errorf("failed to bootstrap cluster: %w", err)
+		lg.Info("Bootstrapping cluster with %d peers", len(servers))
+	}
+
+	configuration := raft.Configuration{Servers: servers}
+
+	// Bootstrap the cluster - this is idempotent
+	f := c.raft.BootstrapCluster(configuration)
+	if err := f.Error(); err != nil {
+		if err != raft.ErrCantBootstrap {
+			lg.Warn("Bootstrap cluster: %v (may be already bootstrapped)", err)
 		}
-		lg.Info("Cluster bootstrapped as first node")
+	} else {
+		lg.Info("Cluster bootstrapped successfully with %d total servers", len(servers))
 	}
 
 	return c, nil
@@ -299,7 +330,6 @@ func (c *Cluster) GetFSM() *FSM {
 
 // Close closes the Raft node
 func (c *Cluster) Close() error {
-	// Shutdown discovery first if enabled
 	if c.discovery != nil {
 		if err := c.discovery.Shutdown(); err != nil {
 			c.logger.Warn("Error shutting down discovery: %v", err)
